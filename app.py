@@ -6,12 +6,32 @@ from werkzeug.utils import secure_filename
 import os
 from datetime import datetime
 from flask_cors import CORS
+import weave
+from pydantic import BaseModel
+from calorie_estimate import (
+    CalorieEstimate,
+    encode_image,
+    get_calorie_estimate_text,
+    get_calorie_estimate_image
+)
+
+
+
+
 
 app = Flask(__name__)
 CORS(app)  # Add this line after creating the Flask app
 app.config['SECRET_KEY'] = 'your-secret-key'  # Change this to a random secret key
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
+
+# Ensure the upload folder exists
+upload_folder = os.path.join(os.path.dirname(__file__), 'uploads')
+if not os.path.exists(upload_folder):
+    os.makedirs(upload_folder)
+
+app.config['UPLOAD_FOLDER'] = upload_folder
+
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -132,7 +152,74 @@ def calculate_calories():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
+
+@app.route('/api/estimate_calories_from_image', methods=['POST'])
+def estimate_calories_from_image():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file provided'}), 400
+
+    image = request.files['image']
+    if image.filename == '':
+        return jsonify({'error': 'No selected image file'}), 400
+
+    if image and allowed_file(image.filename):
+        filename = secure_filename(image.filename)
+        #image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        #image.save(image_path)
+
+        try:
+            base64_image = encode_image(secure_filename(filename))
+            # calorie_estimate = get_calorie_estimate_image(base64_image)
+
+            return jsonify({
+                'food_name': calorie_estimate.food_name,
+                'calories': calorie_estimate.calories,
+                'protein': calorie_estimate.protein,
+                'carbs': calorie_estimate.carbs,
+                'fat': calorie_estimate.fat,
+                'serving_size': calorie_estimate.serving_size,
+                'confidence': calorie_estimate.confidence,
+                'additional_info': calorie_estimate.additional_info
+            }), 200
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    return jsonify({'error': 'Invalid file type'}), 400
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif'}
+
+
+@app.route('/api/estimate_calories_from_text', methods=['POST'])
+def estimate_calories_from_text():
+    data = request.get_json()
+
+    if not data or 'food_description' not in data:
+        return jsonify({'error': 'No food description provided'}), 400
+
+    food_description = data['food_description']
+
+    try:
+        calorie_estimate = get_calorie_estimate_text(food_description)
+
+        return jsonify({
+            'food_name': calorie_estimate.food_name,
+            'calories': calorie_estimate.calories,
+            'protein': calorie_estimate.protein,
+            'carbs': calorie_estimate.carbs,
+            'fat': calorie_estimate.fat,
+            'serving_size': calorie_estimate.serving_size,
+            'confidence': calorie_estimate.confidence,
+            'additional_info': calorie_estimate.additional_info
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
 @app.route('/api/calorie_2', methods=['POST'])
 def calculate_calories_2():
     data = request.get_json()
