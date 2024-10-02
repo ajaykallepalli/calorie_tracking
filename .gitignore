@@ -4,4 +4,4 @@
 *.db
 
 # Uploaded files
-uploads/
+backend/uploads/
