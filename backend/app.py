@@ -39,14 +39,22 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128))
-    weight = db.Column(db.Float)
-    desired_weight = db.Column(db.Float)  # Add this line
+    weight = db.Column(db.Float, nullable=False)
+    desired_weight = db.Column(db.Float, nullable=False)  # Add this line
+    height = db.Column(db.Float)
+    age = db.Column(db.Integer)
+    gender = db.Column(db.String(10))
+    activity_level = db.Column(db.String(20))
 
 class CalorieEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     calories = db.Column(db.Float, nullable=False)
+    protein = db.Column(db.Float)
+    fat = db.Column(db.Float)
+    carbs = db.Column(db.Float)
+    additional_info = db.Column(db.String(255))
     food_name = db.Column(db.String(255), nullable=False)
     image_path = db.Column(db.String(255))
 
@@ -60,11 +68,20 @@ def register():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
+    weight = data.get('weight')
+    desired_weight = data.get('desired_weight')
+    height = data.get('height')
+    age = data.get('age')
+    gender = data.get('gender')
+    activity_level = data.get('activity_level')
+    
     
     if User.query.filter_by(username=username).first():
         return jsonify({'error': 'Username already exists'}), 400
     
-    new_user = User(username=username, password_hash=generate_password_hash(password))
+    new_user = User(username=username, password_hash=generate_password_hash(password), weight=weight,\
+                     desired_weight=desired_weight, height=height, age=age, gender=gender, activity_level=activity_level)
+    login_user(new_user)
     db.session.add(new_user)
     db.session.commit()
     
@@ -225,6 +242,45 @@ def estimate_calories_from_text():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+def calculate_calories_per_day(user):
+    # Calculate calories per day based on user's weight, height, age, gender, and activity level
+    # Using the Harris-Benedict equation
+    # Check if weight, height and age exist
+    if user.weight and user.height and user.age:
+        print('*'*50, 'if user.weight and user.height and user.age')
+        if user.gender == 'male':
+            calories_per_day = 88.362 + (13.397 * user.weight) + (4.799 * user.height) - (5.677 * user.age)
+        else:
+            calories_per_day = 447.593 + (9.247 * user.weight) + (3.098 * user.height) - (4.330 * user.age)
+    elif user.weight and user.height:
+        calories_per_day = 447.593 + (9.247 * user.weight) + (3.098 * user.height)
+    else:
+        calories_per_day = user.weight * 12
+    return calories_per_day
+
+def calculate_calorie_goal(user):
+    daily_calories = calculate_calories_per_day(user)
+    calorie_goal = daily_calories - 500
+    print(daily_calories, 'daily calories')
+    return calorie_goal
+
+@app.route('/api/display_calories', methods=['GET'])
+@login_required
+def display_calories():
+    user = User.query.get(current_user.id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    calorie_goal = calculate_calorie_goal(user)
+    
+    if calorie_goal is None or calorie_goal < 1000:
+        return jsonify({'error': 'Calorie goal unable to be calculated'}), 400
+    
+    return jsonify({
+        'display_calories': round(calorie_goal, 2)
+    }), 200
 
 
 if __name__ == '__main__':
