@@ -8,6 +8,8 @@ import os
 from datetime import datetime
 from flask_cors import CORS
 from pydantic import BaseModel
+from sqlalchemy import func
+from datetime import datetime
 from calorie_estimate import (
     CalorieEstimate,
     encode_image,
@@ -92,20 +94,19 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
-    
     user = User.query.filter_by(username=username).first()
     if user and check_password_hash(user.password_hash, password):
         login_user(user)
         return jsonify({'message': 'Logged in successfully'}), 200
     
-    return jsonify({'error': 'Invalid username or password'}), 401
+    return jsonify({'error': 'Invalid username or password'}), 400
 
 @app.route('/api/user', methods=['GET'])
 @login_required
 def get_user():
     user = User.query.get(current_user.id)
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({'error': 'User not found'}), 400
     
     user_data = {
         'id': user.id,
@@ -116,7 +117,38 @@ def get_user():
     
     return jsonify(user_data), 200
 
-
+@app.route('/api/get_food_day', methods=['POST'])
+@login_required
+def get_food_today():
+    data = request.get_json()
+    date = data.get('date')
+    user_id = current_user.id
+    if not date or not user_id:
+        return jsonify({'error': 'Date or user_id not provided'}), 400
+    # Convert the input date string to a datetime object
+    date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+    print(type(date_obj), 'date_obj')
+    print(date_obj.strftime('%Y-%m-%d'), 'formatted string')
+    # Query entries for the current user and the given date
+    formatted_date = func.strftime('%Y-%m-%d', CalorieEntry.date).label('formatted_date')
+    print('*'*50)
+    print(formatted_date, 'formatted_date')
+    entries = CalorieEntry.query.filter(
+        CalorieEntry.user_id == current_user.id,
+        func.strftime('%Y-%m-%d', CalorieEntry.date) == date_obj.strftime('%Y-%m-%d')#        func.date(CalorieEntry.date) == date_obj
+    ).all()
+    food_today = [{
+        'id': entry.id,
+        'food_name': entry.food_name,
+        'calories': entry.calories,
+        'date': entry.date.isoformat()
+    } for entry in entries]
+    if food_today:
+        return jsonify(food_today), 200
+    elif food_today == []:
+        return jsonify({'error': 'No food entries found for the given date'}), 201
+    else:
+        return jsonify({'error': 'Bad request for food, check date aruments'}), 400
 
 @app.route('/api/update_weight', methods=['POST'])
 @login_required
@@ -163,7 +195,7 @@ def add_calorie_entry():
     db.session.add(entry)
     db.session.commit()
     
-    return jsonify({'message': 'Calorie entry added successfully'}), 201
+    return jsonify({'message': 'Food entry added successfully'}), 200
 
 @app.route('/api/calorie_history', methods=['GET'])
 @login_required
@@ -242,7 +274,26 @@ def estimate_calories_from_text():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add_food_entry', methods=['POST'])
+@login_required
+def update_calorie_entry():
+    # Gets the food name, calories, protein, fat, carbs, and additional info from the request, this is from images or text input.
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No valid JSON provided'}), 400
     
+    new_food = CalorieEntry(user_id=current_user.id, food_name=data.get('food_name'), calories=data.get('calories'), protein=data.get('protein'),\
+                             fat=data.get('fat'), carbs=data.get('carbs'), additional_info=data.get('additional_info'))
+    db.session.add(new_food)
+    db.session.commit()
+    try:
+        return jsonify({'message': 'Food entry added successfully'}), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+
 
 def calculate_calories_per_day(user):
     # Calculate calories per day based on user's weight, height, age, gender, and activity level
@@ -271,7 +322,7 @@ def calculate_calorie_goal(user):
 def display_calories():
     user = User.query.get(current_user.id)
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({'error': 'User not found'}), 400
 
     calorie_goal = calculate_calorie_goal(user)
     
