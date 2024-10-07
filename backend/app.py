@@ -48,6 +48,12 @@ class User(UserMixin, db.Model):
     gender = db.Column(db.String(10))
     activity_level = db.Column(db.String(20))
 
+class WeightEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    weight = db.Column(db.Float, nullable=False)
+
 class CalorieEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -112,10 +118,58 @@ def get_user():
         'id': user.id,
         'username': user.username,
         'weight': user.weight,
-        'desired_weight': user.desired_weight
+        'desired_weight': user.desired_weight,
+        'height': user.height,
+        'age': user.age,
+        'gender': user.gender,
+        'activity_level': user.activity_level
     }
     
     return jsonify(user_data), 200
+
+@app.route('/api/user_from_username', methods=['POST'])
+def get_user_from_username():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 400
+    
+    user_data = {
+        'id': user.id,
+        'username': user.username,
+        'weight': user.weight,
+        'desired_weight': user.desired_weight,
+        'height': user.height,
+        'age': user.age,
+        'gender': user.gender,
+        'activity_level': user.activity_level
+    }
+    
+    return jsonify(user_data), 200
+
+
+@app.route('/api/food_by_username', methods=['POST'])
+def get_food_by_username():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 400
+    
+    calorie_entries = CalorieEntry.query.filter_by(user_id=user.id).all()
+    
+    entries_data = [{
+        'id': entry.id,
+        'food_name': entry.food_name,
+        'calories': entry.calories,
+        'date': entry.date.isoformat(),
+        'protein': entry.protein,
+        'carbs': entry.carbs,
+        'fat': entry.fat
+    } for entry in calorie_entries]
+    
+    return jsonify(entries_data), 200
 
 @app.route('/api/get_food_day', methods=['POST'])
 @login_required
@@ -293,7 +347,10 @@ def update_calorie_entry():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-
+@app.route('/api/get_username', methods=['GET'])
+@login_required
+def get_username():
+    return jsonify({'username': current_user.username}), 200
 
 def calculate_calories_per_day(user):
     # Calculate calories per day based on user's weight, height, age, gender, and activity level
