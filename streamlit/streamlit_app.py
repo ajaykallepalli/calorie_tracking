@@ -11,9 +11,50 @@ from PIL import Image
 import io
 from flask import jsonify
 import plotly.express as px
+import time
+# Add this at the beginning of the file, after the imports
+st.set_page_config(layout="wide", page_title="Calorie Tracker")
 
+# Define the Halloween color scheme
+COLOR_SCHEME = {
+    "background": "#1A1A1A",  # Dark gray (almost black)
+    "content": "#2C2C2C",     # Slightly lighter gray
+    "element": "#FF6600",     # Orange
+    "text": "#FFFFFF",        # White
+    "accent": "#8B008B",      # Dark purple
+    "secondary": "#4B0082"    # Indigo
+}
 
-
+# Apply the Halloween color scheme to the entire app
+st.markdown(
+    f"""
+    <style>
+    .reportview-container {{
+        background-color: {COLOR_SCHEME["background"]};
+    }}
+    .main {{
+        background-color: {COLOR_SCHEME["content"]};
+        padding: 2rem;
+        border-radius: 10px;
+    }}
+    .stButton>button {{
+        background-color: {COLOR_SCHEME["element"]};
+        color: {COLOR_SCHEME["text"]};
+    }}
+    .stTextInput>div>div>input {{
+        background-color: {COLOR_SCHEME["secondary"]};
+        color: {COLOR_SCHEME["text"]};
+    }}
+    h1, h2, h3 {{
+        color: {COLOR_SCHEME["element"]};
+    }}
+    p, span {{
+        color: {COLOR_SCHEME["text"]};
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # # Access secrets
 # db_username = st.secrets["db_username"]
@@ -31,9 +72,6 @@ import plotly.express as px
 
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-
-
-st.set_page_config(layout="wide")
 
 
 ### LOGIN FUNCTIONALITY
@@ -180,11 +218,9 @@ def calculate_calories_text(food_desc):
             response = requests.post("http://127.0.0.1:5000/api/estimate_calories_from_text", json={"food_description": food_desc})
             if response.status_code == 200:
                 st.success("Calorie estimation complete!")
-                st.json(response.json())
                 calorie_data = response.json()
                 added_entry = add_calorie_entry(st.session_state.username,calorie_data)
                 if added_entry:
-                    st.session_state.food_info = get_food_info(st.session_state.username)
                     return True
                 if not added_entry:
                     st.error("Unable to add calorie entry to database")
@@ -195,7 +231,8 @@ def calculate_calories_text(food_desc):
         except:
             st.error("Unable to estimate calories")
             return False
-
+    time.sleep(3)
+    st.experimental_rerun()
 
 def add_calorie_entry(username, json_data):
 
@@ -209,6 +246,7 @@ def add_calorie_entry(username, json_data):
                                                                                   "carbs": carbs, "additional_info": additional_info})
     if response.status_code == 200:
         st.success("Calorie entry added successfully!")
+        st.session_state.food_info = get_food_info(st.session_state.username)
         return True
     else:
         st.error("Unable to add calorie entry")
@@ -225,9 +263,8 @@ def calculate_calories_image(uploaded_file):
             response = requests.post('http://127.0.0.1:5000/api/estimate_calories_from_image', files=files)
             if response.status_code == 200:
                 st.success("Calorie estimation complete!")
-                st.json(response.json())  # Display the response from the server
                 calorie_data = response.json()
-                added_entry = add_calorie_entry(calorie_data)
+                added_entry = add_calorie_entry(st.session_state.username,calorie_data)
             if added_entry:
                 st.success("Calorie entry added to database successfully!")
                 return True
@@ -241,6 +278,84 @@ def calculate_calories_image(uploaded_file):
             st.error(f"An error occurred: {e}")
             return False
         
+### Display data
+def display_food_data(food_data):
+    if not food_data:
+        st.write("No food data available.")
+        return
+
+    # Sort the data by id in descending order
+    sorted_data = sorted(food_data, key=lambda x: x['id'], reverse=True)
+
+    # Create a DataFrame from the sorted data
+    df = pd.DataFrame(sorted_data)
+
+    # Reorder columns
+    columns_order = ['food_name', 'calories', 'protein', 'carbs', 'fat', 'date', 'additional_info']
+    df = df[columns_order]
+
+    # Format the date column
+    df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d %H:%M')
+
+    # Remove decimals from calories, protein, carbs, and fat
+    df['calories'] = df['calories'].astype(int)
+    df['protein'] = df['protein'].astype(int)
+    df['carbs'] = df['carbs'].astype(int)
+    df['fat'] = df['fat'].astype(int)
+
+    # Display the table
+    # Rename columns for better display
+    df = df.rename(columns={
+        'food_name': 'Food Item',
+        'calories': 'Calories',
+        'protein': 'Protein (g)',
+        'carbs': 'Carbs (g)',
+        'fat': 'Fat (g)',
+        'date': 'Date & Time',
+        'additional_info': 'Additional Info'
+    })
+    # Display the table using Streamlit's dataframe function
+    st.dataframe(
+        df,
+        hide_index=True,
+        column_config={
+            "Food Item": st.column_config.TextColumn("Food Item", width="medium"),
+            "Calories": st.column_config.NumberColumn("Calories", format="%d"),
+            "Protein (g)": st.column_config.NumberColumn("Protein (g)", format="%d"),
+            "Carbs (g)": st.column_config.NumberColumn("Carbs (g)", format="%d"),
+            "Fat (g)": st.column_config.NumberColumn("Fat (g)", format="%d"),
+            "Date & Time": st.column_config.DatetimeColumn("Date & Time", format="YYYY-MM-DD HH:mm"),
+            "Additional Info": st.column_config.TextColumn("Additional Info", width="large"),
+        },
+        use_container_width=True,
+    )
+# def display_food_data(food_data):
+#     if not food_data:
+#         st.write("No food data available.")
+#         return
+
+#     # Sort the data by id in descending order
+#     sorted_data = sorted(food_data, key=lambda x: x['id'], reverse=True)
+
+#     # Create a DataFrame from the sorted data
+#     df = pd.DataFrame(sorted_data)
+
+#     # Reorder columns
+#     columns_order = ['food_name', 'calories', 'protein', 'carbs', 'fat', 'date', 'additional_info']
+#     df = df[columns_order]
+
+#     # Format the date column
+#     df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d %H:%M')
+
+#     # Display the table
+#     st.table(df.style.hide(axis="index").set_properties(**{
+#         'background-color': COLOR_SCHEME['content'],
+#         'color': COLOR_SCHEME['text'],
+#         'border-color': COLOR_SCHEME['element']
+#     }).set_table_styles([
+#         {'selector': 'th', 'props': [('background-color', COLOR_SCHEME['element']), ('color', COLOR_SCHEME['text'])]},
+#         {'selector': 'td', 'props': [('border', f'1px solid {COLOR_SCHEME["element"]}')]},
+#     ]))
 
 
 
@@ -259,7 +374,7 @@ def show_main_app():
 
     # Main content
     if st.session_state.logged_in:
-        st.title(f"Calorie Tracker for {st.session_state.username}")
+        st.title(f"🎃 Calorie Tracker 👻")
 
     # Fetch user data
     #user_data = get_user_data(selected_user['id'], selected_date.strftime("%Y-%m-%d"))
@@ -276,9 +391,9 @@ def show_main_app():
         calories_remaining = max(0, calorie_goal - calories_consumed)
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("Calorie Goal", f"{calorie_goal} kcal")
-        col2.metric("Calories Consumed", f"{calories_consumed} kcal")
-        col3.metric("Calories Remaining", f"{calories_remaining} kcal")
+        col1.metric("Calorie Goal", f"{int(calorie_goal)} kcal")
+        col2.metric("Calories Consumed", f"{int(calories_consumed)} kcal")
+        col3.metric("Calories Remaining", f"{int(calories_remaining)} kcal")
 
         # Calorie progress bar
         st.progress(min(calories_consumed / calorie_goal, 1.0))
@@ -290,7 +405,14 @@ def show_main_app():
             "Calories": [calories_consumed, calories_remaining]
         }
         df = pd.DataFrame(calorie_data)
-        st.bar_chart(df.set_index("Category"))
+        fig = px.bar(df, x="Category", y="Calories", color="Category",
+                     color_discrete_map={"Consumed": COLOR_SCHEME["element"], "Remaining": COLOR_SCHEME["secondary"]})
+        fig.update_layout(
+            plot_bgcolor=COLOR_SCHEME["content"],
+            paper_bgcolor=COLOR_SCHEME["content"],
+            font_color=COLOR_SCHEME["text"]
+        )
+        st.plotly_chart(fig)
 
         # Macronutrient breakdown
         st.subheader("Macronutrient Breakdown")
@@ -309,19 +431,26 @@ def show_main_app():
             # Create pie chart
             fig = px.pie(df_macros, values='Grams', names='Nutrient',
                          color='Nutrient',
-                         color_discrete_map={'Protein': '#ff9999', 'Fat': '#66b3ff', 'Carbs': '#99ff99'})
+                         color_discrete_map={'Protein': COLOR_SCHEME["element"], 
+                                             'Fat': COLOR_SCHEME["accent"], 
+                                             'Carbs': COLOR_SCHEME["secondary"]})
             
             # Update layout for better readability
             fig.update_traces(textposition='inside', textinfo='percent+label')
-            fig.update_layout(legend_title_text='Macronutrients')
+            fig.update_layout(
+                legend_title_text='Macronutrients',
+                plot_bgcolor=COLOR_SCHEME["content"],
+                paper_bgcolor=COLOR_SCHEME["content"],
+                font_color=COLOR_SCHEME["text"]
+            )
 
             # Display the chart
             st.plotly_chart(fig)
 
             # Display macronutrient breakdown in text
-            st.text(f"Protein: {protein_consumed:.1f}g")
-            st.text(f"Fat: {fat_consumed:.1f}g")
-            st.text(f"Carbs: {carbs_consumed:.1f}g")
+            st.markdown(f"<span style='color:{COLOR_SCHEME['element']}; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);'>Protein: {protein_consumed:.1f}g</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:{COLOR_SCHEME['accent']}; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);'>Fat: {fat_consumed:.1f}g</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:{COLOR_SCHEME['secondary']}; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);'>Carbs: {carbs_consumed:.1f}g</span>", unsafe_allow_html=True)
         else:
             st.info("No macronutrient data available for the selected date.")
 
@@ -329,13 +458,14 @@ def show_main_app():
     st.subheader("Add Food")
     food_desc = st.text_input("Use Food Description")
     uploaded_file = st.file_uploader("Use Food Image", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        # Display the uploaded image
+        food_img = Image.open(uploaded_file)
+        st.image(food_img, caption='Uploaded Image', use_column_width=True)
     
     if st.button('Add Food'):
         ## If image uploaded use image, else use text
         if uploaded_file is not None:
-        # Display the uploaded image
-            food_img = Image.open(uploaded_file)
-            st.image(food_img, caption='Uploaded Image', use_column_width=True)
             if food_img is not None:
                 print("Using image to estimate calories")
                 calculate_calories_image(uploaded_file)
@@ -345,6 +475,7 @@ def show_main_app():
                 calculate_calories_text(food_desc)
             except:
                 st.error(f"An error occurred while calculating calories")
+        st.experimental_rerun()
     
 
     # Fetch and display recent food intake
@@ -368,5 +499,4 @@ if not st.session_state.logged_in:
     show_login_page()
 else:
     show_main_app()
-    st.write(st.session_state.food_info)
-    st.write(st.session_state.user_info)
+    display_food_data(st.session_state.food_info)
