@@ -166,7 +166,8 @@ def get_food_by_username():
         'date': entry.date.isoformat(),
         'protein': entry.protein,
         'carbs': entry.carbs,
-        'fat': entry.fat
+        'fat': entry.fat,
+        'additional_info': entry.additional_info
     } for entry in calorie_entries]
     
     return jsonify(entries_data), 200
@@ -236,16 +237,24 @@ def goal_weight():
 
 
 @app.route('/api/add_calorie_entry', methods=['POST'])
-@login_required
 def add_calorie_entry():
     data = request.get_json()
+    username = data.get('username')
+    # Get user id from username
+    user = User.query.filter_by(username=username).first()
+    user_id = user.id
     calories = data.get('calories')
     food_name = data.get('food_name')
+    protein = data.get('protein')
+    fat = data.get('fat')
+    carbs = data.get('carbs')
+    additional_info = data.get('additional_info')
     
     if not calories or not food_name:
         return jsonify({'error': 'Calories and food name not provided'}), 400
     
-    entry = CalorieEntry(user_id=current_user.id, calories=float(calories), food_name=food_name)
+    entry = CalorieEntry(user_id=user_id, calories=float(calories), food_name=food_name, \
+                         protein=protein, fat=fat, carbs=carbs, additional_info=additional_info)
     db.session.add(entry)
     db.session.commit()
     

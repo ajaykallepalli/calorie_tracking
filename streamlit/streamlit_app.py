@@ -10,6 +10,7 @@ import requests
 from PIL import Image
 import io
 from flask import jsonify
+import plotly.express as px
 
 
 
@@ -116,15 +117,101 @@ def show_login_page():
 #     else:
 #         st.error("Invalid username or password")
 #         return False
+
+### CALORIES CALCULATION
+def calculate_daily_calories(user_info):
+    # Extract user information
+    age = user_info['age']
+    gender = user_info['gender']
+    weight = user_info['weight']  # in pounds
+    height = user_info['height']  # in inches
+    activity_level = user_info['activity_level']
+
+    # Convert weight to kg and height to cm
+    weight_kg = weight * 0.453592
+    height_cm = height * 2.54
+
+    # Calculate BMR (Basal Metabolic Rate) using Mifflin-St Jeor Equation
+    if gender.lower() == 'male':
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+    else:
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+
+    # Apply activity factor
+    activity_factors = {
+        'sedentary': 1.2,
+        'light': 1.375,
+        'moderate': 1.55,
+        'active': 1.725,
+        'very active': 1.9
+    }
+    
+    activity_factor = activity_factors.get(activity_level.lower(), 1.2)
+    
+    # Calculate Total Daily Energy Expenditure (TDEE)
+    tdee = bmr * activity_factor
+
+    # Round to nearest 50 calories
+    daily_calories = round(tdee / 50) * 50
+
+    return daily_calories
+
+
+def calculate_total_calories(food_entries):
+    total_calories = 0
+    protein_consumed = 0
+    fat_consumed = 0
+    carbs_consumed = 0
+    for entry in food_entries:
+        total_calories += entry.get('calories', 0)
+        protein_consumed += entry.get('protein', 0)
+        fat_consumed += entry.get('fat', 0)
+        carbs_consumed += entry.get('carbs', 0)
+    return total_calories, protein_consumed, fat_consumed, carbs_consumed
+
+### CALORIES ENTRY
+
+
+
     
 def calculate_calories_text(food_desc):
-    response = requests.post("http://127.0.0.1:5000/api/estimate_calories_from_text", json={"food_description": food_desc})
+    with st.spinner('Estimating calories... Please wait.'):
+        try:
+            response = requests.post("http://127.0.0.1:5000/api/estimate_calories_from_text", json={"food_description": food_desc})
+            if response.status_code == 200:
+                st.success("Calorie estimation complete!")
+                st.json(response.json())
+                calorie_data = response.json()
+                added_entry = add_calorie_entry(st.session_state.username,calorie_data)
+                if added_entry:
+                    st.session_state.food_info = get_food_info(st.session_state.username)
+                    return True
+                if not added_entry:
+                    st.error("Unable to add calorie entry to database")
+                    return False
+            else:
+                st.error("Unable to estimate calories")
+                return False
+        except:
+            st.error("Unable to estimate calories")
+            return False
+
+
+def add_calorie_entry(username, json_data):
+
+    food_name = json_data.get('food_name')
+    calories = json_data.get('calories')
+    protein = json_data.get('protein')
+    fat = json_data.get('fat')
+    carbs = json_data.get('carbs')
+    additional_info = json_data.get('additional_info')
+    response = requests.post("http://127.0.0.1:5000/api/add_calorie_entry", json={"username": username, "food_name": food_name, "calories": calories, "protein": protein, "fat": fat, \
+                                                                                  "carbs": carbs, "additional_info": additional_info})
     if response.status_code == 200:
-        st.success("Calorie estimation complete!")
-        st.json(response.json())
+        st.success("Calorie entry added successfully!")
         return True
     else:
-        st.error("Unable to estimate calories")
+        st.error("Unable to add calorie entry")
         return False
 
 def calculate_calories_image(uploaded_file):
@@ -139,11 +226,23 @@ def calculate_calories_image(uploaded_file):
             if response.status_code == 200:
                 st.success("Calorie estimation complete!")
                 st.json(response.json())  # Display the response from the server
+                calorie_data = response.json()
+                added_entry = add_calorie_entry(calorie_data)
+            if added_entry:
+                st.success("Calorie entry added to database successfully!")
+                return True
+            if not added_entry:
+                st.error("Unable to add calorie entry to database")
+                return False
             else:
                 st.error(f"Failed to upload image. Status code: {response.status_code}")
                 st.text(response.text)  # Display the error message from the server
         except requests.RequestException as e:
             st.error(f"An error occurred: {e}")
+            return False
+        
+
+
 
 ### App functionality
 
@@ -172,8 +271,8 @@ def show_main_app():
         st.metric("Weight")
     else:
         # Calorie tracking
-        calorie_goal = 2000 # user_data.get('calorie_goal', 2000)
-        calories_consumed = 1500 # user_data.get('calories_consumed', 0)
+        calorie_goal = calculate_daily_calories(st.session_state.user_info)
+        calories_consumed, protein_consumed, fat_consumed, carbs_consumed = calculate_total_calories(st.session_state.food_info)
         calories_remaining = max(0, calorie_goal - calories_consumed)
 
         col1, col2, col3 = st.columns(3)
@@ -193,40 +292,63 @@ def show_main_app():
         df = pd.DataFrame(calorie_data)
         st.bar_chart(df.set_index("Category"))
 
+        # Macronutrient breakdown
+        st.subheader("Macronutrient Breakdown")
+        
+        # Calculate total macronutrients
+        total_macros = protein_consumed + fat_consumed + carbs_consumed
+        
+        if total_macros > 0:
+            # Prepare data for pie chart
+            macro_data = {
+                'Nutrient': ['Protein', 'Fat', 'Carbs'],
+                'Grams': [protein_consumed, fat_consumed, carbs_consumed]
+            }
+            df_macros = pd.DataFrame(macro_data)
+
+            # Create pie chart
+            fig = px.pie(df_macros, values='Grams', names='Nutrient',
+                         color='Nutrient',
+                         color_discrete_map={'Protein': '#ff9999', 'Fat': '#66b3ff', 'Carbs': '#99ff99'})
+            
+            # Update layout for better readability
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(legend_title_text='Macronutrients')
+
+            # Display the chart
+            st.plotly_chart(fig)
+
+            # Display macronutrient breakdown in text
+            st.text(f"Protein: {protein_consumed:.1f}g")
+            st.text(f"Fat: {fat_consumed:.1f}g")
+            st.text(f"Carbs: {carbs_consumed:.1f}g")
+        else:
+            st.info("No macronutrient data available for the selected date.")
+
     # Add food intake form
     st.subheader("Add Food")
     food_desc = st.text_input("Use Food Description")
     uploaded_file = st.file_uploader("Use Food Image", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        # Display the uploaded image
-        food_img = Image.open(uploaded_file)
-        st.image(food_img, caption='Uploaded Image', use_column_width=True)
+    
     if st.button('Add Food'):
         ## If image uploaded use image, else use text
-        print(food_img)
-        if food_img is not None:
-            print("Using image to estimate calories")
-            calculate_calories_image(uploaded_file)
+        if uploaded_file is not None:
+        # Display the uploaded image
+            food_img = Image.open(uploaded_file)
+            st.image(food_img, caption='Uploaded Image', use_column_width=True)
+            if food_img is not None:
+                print("Using image to estimate calories")
+                calculate_calories_image(uploaded_file)
         elif food_desc:
             print('Using food description to estimate calories')
-            with st.spinner('Estimating calories... Please wait.'):
-                    try:
-                        calculate_calories_text(food_desc)
-                    except:
-                        st.error(f"An error occurred while calculating calories")
-            
+            try:
+                calculate_calories_text(food_desc)
+            except:
+                st.error(f"An error occurred while calculating calories")
+    
 
     # Fetch and display recent food intake
     st.subheader("Food logged for the day")
-    response = requests.post("http://127.0.0.1:5000/api/get_food_day", json={"date": selected_date.strftime("%Y-%m-%d")})
-    if response.status_code == 200:
-        food_today = response.json()
-        for food in food_today:
-            st.text(f"{food['food_name']} - {food['calories']} calories")
-    else:
-        st.error("Failed to fetch recent food intake")
-
-
     # # Display recent food intake
     # st.subheader("Food Intake for the Day")
     # # Here you would fetch and display recent food intake from your backend
@@ -247,3 +369,4 @@ if not st.session_state.logged_in:
 else:
     show_main_app()
     st.write(st.session_state.food_info)
+    st.write(st.session_state.user_info)
